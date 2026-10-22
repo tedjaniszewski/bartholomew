@@ -161,10 +161,12 @@ function unionBox(a, b) {
 function applyFilters(keepCurrent = false) {
   const status = $("filter-status").value;
   const kind = $("filter-kind").value;
+  const ai = $("filter-ai").value;
   const text = $("filter-text").value.trim().toLowerCase();
   state.list = state.doc.entries
     .filter((e) => status === "all" || e.status === status)
     .filter((e) => !kind || e.kind === kind)
+    .filter((e) => !ai || (ai === "none" ? !e.ai : ai === "missed" ? e.ai?.action === "missed" : e.ai?.confidence === ai))
     .filter((e) => !text || e.name.toLowerCase().includes(text) || (e.ocr?.text || "").toLowerCase().includes(text))
     .map((e) => e.id);
   const at = keepCurrent && state.current ? state.list.indexOf(state.current.id) : -1;
@@ -194,7 +196,7 @@ function renderQueue() {
     li.dataset.id = e.id;
     li.innerHTML = '<span class="q-dot"></span><span class="q-name"></span><span class="q-kind"></span>';
     li.querySelector(".q-name").textContent = e.name || "—";
-    li.querySelector(".q-kind").textContent = e.kind;
+    li.querySelector(".q-kind").textContent = e.ai ? `${e.kind} · AI ${e.ai.confidence}` : e.kind;
     queue.append(li);
   }
 }
@@ -220,6 +222,12 @@ function select(entry, { zoom = true } = {}) {
     ? `${number.format(at + 1)} of ${number.format(state.list.length)}`
     : "Not in this list";
   $("status").textContent = `${entry.status}${entry.into ? ` into ${state.byId.get(entry.into)?.name || entry.into}` : ""}`;
+  $("ai-row").hidden = !entry.ai;
+  $("reading-ai").textContent = entry.ai?.text || (entry.ai?.action === "not_text" ? "(not text)" : "");
+  const action = { part_of: "part of another label", alternate_of: "an alternate name", missed: "added; OCR missed it" }[entry.ai?.action];
+  $("ai-confidence").textContent = entry.ai ? `${entry.ai.confidence} confidence${action ? `, ${action}` : ""}` : "";
+  $("ai-confidence").classList.toggle("is-low", entry.ai?.confidence === "low");
+  $("ai-note").textContent = entry.ai?.note || "";
   $("reading-1").textContent = entry.ocr?.text || "—";
   $("reading-2").textContent = entry.ocr?.alt || "";
   $("reading-2-row").hidden = !entry.ocr?.alt;
@@ -484,10 +492,10 @@ $("undo").addEventListener("click", undo);
 $("export").addEventListener("click", exportFile);
 $("import").addEventListener("change", (e) => e.target.files[0] && importFile(e.target.files[0]));
 $("help-button").addEventListener("click", () => $("help").showModal());
-for (const id of ["reading-1", "reading-2"]) {
+for (const id of ["reading-ai", "reading-1", "reading-2"]) {
   $(id).addEventListener("click", () => { $("name").value = $(id).textContent; $("name").focus(); });
 }
-for (const id of ["filter-status", "filter-kind"]) $(id).addEventListener("change", () => applyFilters());
+for (const id of ["filter-status", "filter-kind", "filter-ai"]) $(id).addEventListener("change", () => applyFilters());
 $("filter-text").addEventListener("input", () => applyFilters());
 $("queue").addEventListener("click", (e) => {
   const li = e.target.closest("li[data-id]");

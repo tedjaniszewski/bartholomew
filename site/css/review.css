@@ -59,7 +59,7 @@ body.review { grid-template-rows: auto 1fr; }
   background: var(--paper);
   border-left: var(--rule);
 }
-.filters { display: flex; gap: 0.4rem; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--paper-edge); }
+.filters { display: grid; grid-template-columns: 1fr 1fr; gap: 0.4rem; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--paper-edge); }
 .filters select, .filters input { min-width: 0; flex: 1; font-size: 0.9rem; }
 
 .editor { padding: 0.7rem 0.8rem 0.9rem; border-bottom: 1px solid var(--paper-edge); }
@@ -73,6 +73,11 @@ body.review { grid-template-rows: auto 1fr; }
   font-size: 0.95rem; color: var(--ink); cursor: pointer;
 }
 .reading:hover { border-color: var(--sea); }
+.reading--ai { background: #e3efe9; border-color: #a8cdc4; }
+.ai-confidence { font-style: italic; font-size: 0.85rem; }
+.ai-confidence.is-low { color: var(--title-red); font-style: normal; }
+.ai-note { margin: 0 0 0.3rem; font-size: 0.85rem; font-style: italic; color: var(--title-red); }
+.ai-note:empty { display: none; }
 
 .field { display: flex; flex-direction: column; gap: 0.15rem; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
 .field input, .field select { font-size: 1rem; width: 100%; }

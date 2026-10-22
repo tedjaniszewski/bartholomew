@@ -109,6 +109,24 @@ python3 tools/ocr/run_ocr.py palestine-1901        # ~15 minutes on 4 cores
 python3 tools/ocr/build_gazetteer.py palestine-1901
 ```
 
+### AI correction pass
+
+`tools/ocr/ai_correct.py` has Claude read every tile of the sheet at 2x,
+with the OCR boxes numbered, and fills in its transcription, fragment and
+alternate-name links, and labels the OCR missed. Entries stay unreviewed:
+the review tool shows the AI reading (with its confidence) next to the OCR
+readings. It needs `pip install anthropic` and an `ANTHROPIC_API_KEY`.
+
+```sh
+python3 tools/ocr/ai_correct.py preview palestine-1901  # see the images it sends (free)
+python3 tools/ocr/ai_correct.py trial   palestine-1901  # 3 tiles live; prints real cost estimate
+python3 tools/ocr/ai_correct.py submit  palestine-1901  # whole map, Batches API (half price)
+python3 tools/ocr/ai_correct.py collect palestine-1901  # when done: download and apply
+```
+
+Batch IDs and raw results are kept in `ocr/<map-id>/ai/` (commit them), so
+`apply` can be rerun and the pass never needs paying for twice.
+
 Rerunning `build_gazetteer.py` (say, after improving the grouping rules)
 keeps every entry already touched in review and only adds new OCR labels
 that don't overlap them.

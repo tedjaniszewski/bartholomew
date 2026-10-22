@@ -46,6 +46,14 @@
         <select id="filter-kind" aria-label="Show entries of kind">
           <option value="">All kinds</option>
         </select>
+        <select id="filter-ai" aria-label="Show entries by AI confidence">
+          <option value="">Any AI reading</option>
+          <option value="high">AI: high</option>
+          <option value="medium">AI: medium</option>
+          <option value="low">AI: low</option>
+          <option value="missed">AI: added</option>
+          <option value="none">No AI reading</option>
+        </select>
         <input id="filter-text" type="search" placeholder="Filter text" aria-label="Filter by text">
       </div>
 
@@ -53,6 +61,8 @@
         <p class="editor__position"><span id="position"></span> <span class="editor__status" id="status"></span></p>
 
         <div class="readings">
+          <p id="ai-row">AI read <button type="button" class="reading reading--ai" id="reading-ai"></button> <span class="ai-confidence" id="ai-confidence"></span></p>
+          <p class="ai-note" id="ai-note"></p>
           <p>OCR read <button type="button" class="reading" id="reading-1"></button></p>
           <p id="reading-2-row">Second reading <button type="button" class="reading" id="reading-2"></button></p>
         </div>
@@ -106,6 +116,7 @@
       <dt>Ctrl+Z</dt><dd>Undo (when not typing in a field)</dd>
       <dt>Esc</dt><dd>Cancel joining or drawing</dd>
     </dl>
+    <p>Where the AI pass has run, its reading is already in the Name field, with its confidence beside it; the OCR readings remain below for comparison. Use the AI filter to sweep the high-confidence readings first, or to give the low-confidence ones closer attention.</p>
     <p>Kinds: <em>height</em> is a spot elevation (these will feed the elevation readout), <em>graticule</em> the degree figures in the margin (these will help georeference the map).</p>
     <form method="dialog"><button class="action">Close</button></form>
   </dialog>

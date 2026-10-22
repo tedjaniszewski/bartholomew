@@ -3,3 +3,6 @@ site/iiif/
 
 __pycache__/
 .DS_Store
+
+# AI correction pass: preview images (regenerable)
+ocr/*/ai/preview/
