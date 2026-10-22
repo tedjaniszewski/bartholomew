@@ -1,0 +1,23 @@
+{
+  "default": "palestine-1901",
+  "maps": [
+    {
+      "id": "palestine-1901",
+      "title": "Topographical & Physical Map of Palestine",
+      "shortTitle": "Palestine, 1901",
+      "date": "1901",
+      "credit": "Drawn by J. G. Bartholomew, edited by George Adam Smith",
+      "image": "iiif/palestine-1901-geographicus/info.json",
+      "build": {
+        "source": "geographicus/TopoPhysicalPalestine-bartholomew-1901-full.jpg",
+        "trim": true
+      },
+      "scan": {
+        "name": "Geographicus Rare Antique Maps",
+        "url": "https://www.geographicus.com/P/AntiqueMap/topophysicalpalestine-bartholomew-1901"
+      },
+      "georeference": null,
+      "gazetteer": null
+    }
+  ]
+}

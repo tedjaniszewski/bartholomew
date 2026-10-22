@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Bartholomew</title>
+  <meta name="description" content="An interactive, deep-zoom edition of J. G. Bartholomew's 1901 Topographical and Physical Map of Palestine.">
+  <meta name="theme-color" content="#f3ead6">
+  <link rel="stylesheet" href="css/bartholomew.css">
+  <script src="vendor/openseadragon/openseadragon.min.js" defer></script>
+  <script src="js/app.js" type="module"></script>
+</head>
+<body class="app">
+  <header class="masthead">
+    <a class="brand" href="./" aria-label="Bartholomew, home">Bartholomew</a>
+
+    <button class="map-switcher" id="map-switcher" type="button" aria-haspopup="listbox" aria-expanded="false" aria-controls="map-list">
+      <span class="map-switcher__label" id="map-title">Loading map&hellip;</span>
+      <span class="map-switcher__label map-switcher__label--short" id="map-short-title"></span>
+      <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 6l4 4 4-4" /></svg>
+    </button>
+    <ul class="map-list" id="map-list" role="listbox" aria-label="Choose a map" hidden></ul>
+
+    <form class="search" id="search" role="search" autocomplete="off">
+      <label class="visually-hidden" for="search-input">Search place names</label>
+      <svg class="icon search__icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="7" cy="7" r="4.5" /><path d="M10.5 10.5L14 14" /></svg>
+      <input class="search__input" id="search-input" type="search" placeholder="Search place names" spellcheck="false"
+             role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="search-results">
+      <ul class="search__results" id="search-results" role="listbox" hidden></ul>
+    </form>
+
+    <nav class="masthead__nav">
+      <a href="about.html">About</a>
+    </nav>
+  </header>
+
+  <main class="stage">
+    <div class="viewer" id="viewer" aria-label="Map viewer. Drag to pan, scroll or pinch to zoom."></div>
+
+    <div class="controls" role="group" aria-label="Map controls">
+      <button type="button" class="control" id="zoom-in" aria-label="Zoom in" title="Zoom in">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 3v10M3 8h10" /></svg>
+      </button>
+      <button type="button" class="control" id="zoom-out" aria-label="Zoom out" title="Zoom out">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 8h10" /></svg>
+      </button>
+      <button type="button" class="control" id="zoom-home" aria-label="Show whole map" title="Show whole map">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="3.5" y="2.5" width="9" height="11" /><path d="M5.5 5h5M5.5 7.5h5" /></svg>
+      </button>
+      <button type="button" class="control" id="fullscreen" aria-label="Full screen" title="Full screen" hidden>
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2.5 6V2.5H6M10 2.5h3.5V6M13.5 10v3.5H10M6 13.5H2.5V10" /></svg>
+      </button>
+    </div>
+  </main>
+
+  <footer class="infobar" aria-live="polite">
+    <dl class="readout" id="readout">
+      <div><dt>Lat</dt><dd id="readout-lat">&mdash;</dd></div>
+      <div><dt>Lon</dt><dd id="readout-lon">&mdash;</dd></div>
+      <div><dt>Elev</dt><dd id="readout-elev">&mdash;</dd></div>
+    </dl>
+    <p class="infobar__message" id="infobar-message">Tap or click the map to select a point.</p>
+    <p class="infobar__meta">
+      <span id="zoom-level">&nbsp;</span>
+      <span class="infobar__credit">Scan: <a id="scan-credit" href="#" target="_blank" rel="noopener">&nbsp;</a></span>
+    </p>
+  </footer>
+</body>
+</html>
