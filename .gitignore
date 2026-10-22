@@ -1,0 +1,5 @@
+# Generated tile pyramids: rebuild with `python3 tools/build_tiles.py`
+site/iiif/
+
+__pycache__/
+.DS_Store
