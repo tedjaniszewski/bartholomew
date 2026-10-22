@@ -23,6 +23,7 @@ Or, instead of the API, inside a Claude Code session (no API key needed):
     python3 tools/ocr/ai_correct.py export  palestine-1901   # render every tile to ai/session/
     python3 tools/ocr/ai_correct.py next    palestine-1901   # tiles still to read, with OCR hints
     python3 tools/ocr/ai_correct.py record  palestine-1901 < readings.json
+    python3 tools/ocr/ai_correct.py record  palestine-1901 --compact < readings.txt
     python3 tools/ocr/ai_correct.py apply   palestine-1901
 
 Claude reads each tile's image, writes its readings in the same JSON form
@@ -103,7 +104,8 @@ OCR readings for the numbered boxes (OCR is often wrong; read the image):
 For every numbered box, return one entry in "labels":
 - action "label": the box holds a label (or most of one). "text" is the full \
 label exactly as printed. If the box clearly covers two separate labels, give \
-the main one and explain in "note".
+the main one and explain in "note". If it also holds a parenthesised \
+alternative name, write "Name | Alternative".
 - action "part_of": the box is only a piece of the label in box "target" \
 (e.g. "Kefr" and "Kenna" boxed separately). Give that full label's text in \
 the target's own entry; here "text" is just this piece.
@@ -321,6 +323,14 @@ def request_params(image, tile, by_id):
 # Applying results
 # ---------------------------------------------------------------------------
 
+def covered(box, other):
+    """How much of `box` another box covers. A missed region name's large
+    box may contain small labels without duplicating them."""
+    iw = min(box[0] + box[2], other[0] + other[2]) - max(box[0], other[0])
+    ih = min(box[1] + box[3], other[1] + other[3]) - max(box[1], other[1])
+    return 0.0 if iw <= 0 or ih <= 0 else iw * ih / max(1, box[2] * box[3])
+
+
 def apply_results(map_id):
     p = paths(map_id)
     gazetteer = json.loads(p["gazetteer"].read_text())
@@ -358,6 +368,13 @@ def apply_results(map_id):
             e.pop("into", None)
 
             if action == "label":
+                # "Name | Alternate": a parenthesised name inside the same box.
+                name, *alts = [part.strip() for part in item["text"].split("|")]
+                item = {**item, "text": name}
+                e["ai"]["text"] = name
+                for alt in alts:
+                    if alt and alt not in e["alt"]:
+                        e["alt"].append(alt)
                 e["name"] = item["text"]
                 e["kind"] = item["kind"]
                 e["status"] = "unreviewed"
@@ -389,7 +406,13 @@ def apply_results(map_id):
             bx0, by0, bx1, by1 = m["box"]
             box = [round(x0 + min(bx0, bx1) / s), round(y0 + min(by0, by1) / s),
                    round(abs(bx1 - bx0) / s), round(abs(by1 - by0) / s)]
-            if box[2] < 3 or box[3] < 3 or any(overlap(box, e["box"]) > 0.3 for e in gazetteer["entries"]):
+            # Skip it if an existing box of similar size already covers it; a
+            # much larger box spanning several labels doesn't count.
+            area = box[2] * box[3]
+            if box[2] < 3 or box[3] < 3 or any(
+                covered(box, e["box"]) > 0.3 and e["box"][2] * e["box"][3] < 2 * area
+                for e in gazetteer["entries"]
+            ):
                 continue
             entry = {
                 "id": f"l{next_id:05d}", "name": m["text"], "alt": [], "kind": m["kind"], "box": box,
@@ -651,11 +674,58 @@ def validate(tile, output):
     return problems
 
 
+CONFIDENCE = {"h": "high", "m": "medium", "l": "low"}
+
+
+def parse_compact(text):
+    """Shorthand for readings, one line per box:
+
+        @x03072-y00000-s512
+        1 L headland h Ras Beirut
+        5 P4 water h Bay              (part of box 4)
+        14 A12 place h Tell Damieh    (alternate name of box 12)
+        5 L place m ? Mearah | Mogheiriyeh   (alternate name inside the same box)
+        8 N m # coastline squiggle    (not text)
+        M region 330,560,560,1040 LEBANON   (missed: box in image pixels)
+
+    Text after " # " is a note."""
+    records, current = [], None
+    for raw in text.splitlines():
+        line, _, note = raw.partition(" # ")
+        line, note = line.strip(), note.strip()
+        if not line:
+            continue
+        if line.startswith("@"):
+            current = {"tile": line[1:].strip(), "output": {"labels": [], "missed": []}}
+            records.append(current)
+            continue
+        parts = line.split()
+        if parts[0] == "M":
+            box = [float(v) for v in parts[2].split(",")]
+            current["output"]["missed"].append({"kind": parts[1], "box": box, "text": " ".join(parts[3:])})
+            continue
+        n, code = int(parts[0]), parts[1]
+        if code == "N":
+            conf = CONFIDENCE.get(parts[2], "medium") if len(parts) > 2 else "medium"
+            item = {"n": n, "action": "not_text", "text": "", "target": None, "kind": "other",
+                    "confidence": conf, "note": note}
+        else:
+            action = {"L": "label", "P": "part_of", "A": "alternate_of"}[code[0]]
+            item = {"n": n, "action": action, "text": " ".join(parts[4:]),
+                    "target": int(code[1:]) if code[1:] else None, "kind": parts[2],
+                    "confidence": CONFIDENCE[parts[3]], "note": note}
+        current["output"]["labels"].append(item)
+    return records
+
+
 def cmd_record(args):
     p = paths(args.map_id)
     tiles = json.loads(p["tiles"].read_text())["tiles"]
-    data = json.load(sys.stdin)
-    records = data if isinstance(data, list) else [data]
+    if args.compact:
+        records = parse_compact(sys.stdin.read())
+    else:
+        data = json.load(sys.stdin)
+        records = data if isinstance(data, list) else [data]
     done = done_tiles(p)
     ok = []
     for record in records:
@@ -688,6 +758,8 @@ def main():
             p.add_argument("--tiles", type=int, default=3)
         if name == "next":
             p.add_argument("--count", type=int, default=4)
+        if name == "record":
+            p.add_argument("--compact", action="store_true", help="read the one-line-per-box shorthand")
         if name == "submit":
             p.add_argument("--limit", type=int, help="only the first N tiles")
             p.add_argument("--force", action="store_true")
