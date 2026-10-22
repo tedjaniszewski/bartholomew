@@ -345,21 +345,33 @@ def apply_results(map_id):
     next_id = 1 + max(int(e["id"][1:]) for e in gazetteer["entries"])
     stats = {"label": 0, "part_of": 0, "alternate_of": 0, "not_text": 0, "missed": 0, "skipped": 0}
 
+    records = []
     for line in p["results"].read_text().splitlines():
         record = json.loads(line)
         tile = tiles.get(record["tile"]) or record.get("tile_info")
-        if not tile or not record.get("output"):
-            continue
-        numbered = {n: by_id.get(i) for n, i in enumerate(tile["entries"], 1)}
-        out = record["output"]
+        if tile and record.get("output"):
+            records.append((tile, record["output"]))
 
+    def same(a, b):
+        return a.replace(" ", "").lower() == b.replace(" ", "").lower()
+
+    def add_alt(entry, alt):
+        alt = alt.strip("() ")
+        if alt and not same(alt, entry["name"]) and not any(same(alt, a) for a in entry["alt"]):
+            entry["alt"].append(alt)
+
+    # Two passes, because a link may point at a label in a tile read later:
+    # first every label is set from its own reading (the AI's alternates
+    # replace the OCR's guessed ones), then the links are applied on top.
+    links = []
+    for tile, out in records:
+        numbered = {n: by_id.get(i) for n, i in enumerate(tile["entries"], 1)}
         for item in out["labels"]:
             e = numbered.get(item["n"])
             if not e or e.get("reviewed"):
                 stats["skipped"] += 1
                 continue
             action = item["action"]
-            target = numbered.get(item["target"]) if item["target"] is not None else None
             e["ai"] = {k: v for k, v in {
                 "action": action, "text": item["text"], "confidence": item["confidence"], "note": item["note"],
             }.items() if v}
@@ -370,34 +382,36 @@ def apply_results(map_id):
             if action == "label":
                 # "Name | Alternate": a parenthesised name inside the same box.
                 name, *alts = [part.strip() for part in item["text"].split("|")]
-                item = {**item, "text": name}
                 e["ai"]["text"] = name
+                e["name"] = name
+                e["alt"] = []
                 for alt in alts:
-                    if alt and alt not in e["alt"]:
-                        e["alt"].append(alt)
-                e["name"] = item["text"]
+                    add_alt(e, alt)
                 e["kind"] = item["kind"]
                 e["status"] = "unreviewed"
             elif action == "not_text":
                 e["status"] = "rejected"
-            elif action in ("part_of", "alternate_of") and target and target is not e:
-                e["status"] = "merged"
-                e["into"] = target["id"]
-                if action == "part_of":
-                    x0 = min(e["box"][0], target["box"][0])
-                    y0 = min(e["box"][1], target["box"][1])
-                    x1 = max(e["box"][0] + e["box"][2], target["box"][0] + target["box"][2])
-                    y1 = max(e["box"][1] + e["box"][3], target["box"][1] + target["box"][3])
-                    target["box"] = [x0, y0, x1 - x0, y1 - y0]
-                else:
-                    alt = item["text"].strip("() ")
-                    if alt and alt not in target["alt"]:
-                        target["alt"].append(alt)
             else:
-                e["status"] = "unreviewed"
-                e["ai"]["note"] = (e["ai"].get("note", "") + " (unclear target)").strip()
+                links.append((e, item, numbered.get(item["target"]) if item["target"] is not None else None))
             stats[action] += 1
 
+    for e, item, target in links:
+        if not target or target is e:
+            e["status"] = "unreviewed"
+            e["ai"]["note"] = (e["ai"].get("note", "") + " (unclear target)").strip()
+            continue
+        e["status"] = "merged"
+        e["into"] = target["id"]
+        if item["action"] == "part_of":
+            x0 = min(e["box"][0], target["box"][0])
+            y0 = min(e["box"][1], target["box"][1])
+            x1 = max(e["box"][0] + e["box"][2], target["box"][0] + target["box"][2])
+            y1 = max(e["box"][1] + e["box"][3], target["box"][1] + target["box"][3])
+            target["box"] = [x0, y0, x1 - x0, y1 - y0]
+        else:
+            add_alt(target, item["text"])
+
+    for tile, out in records:
         x0, y0 = tile["crop"][:2]
         s = tile["scale"]
         for m in out["missed"]:
@@ -414,12 +428,15 @@ def apply_results(map_id):
                 for e in gazetteer["entries"]
             ):
                 continue
+            name, *alts = [part.strip() for part in m["text"].split("|")]
             entry = {
-                "id": f"l{next_id:05d}", "name": m["text"], "alt": [], "kind": m["kind"], "box": box,
+                "id": f"l{next_id:05d}", "name": name, "alt": [], "kind": m["kind"], "box": box,
                 "status": "unreviewed", "ocr": None,
-                "ai": {"action": "missed", "text": m["text"], "confidence": "low",
+                "ai": {"action": "missed", "text": name, "confidence": "low",
                        "note": "Added by the AI pass; check the box covers the label"},
             }
+            for alt in alts:
+                add_alt(entry, alt)
             next_id += 1
             gazetteer["entries"].append(entry)
             by_id[entry["id"]] = entry
