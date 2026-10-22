@@ -24,14 +24,22 @@ site/
   css/bartholomew.css colours, type and layout
   js/app.js           start-up, map switcher, info bar, shareable URLs
   js/viewer.js        wrapper around OpenSeadragon (all map access goes through it)
-  js/search.js        place-name autocomplete (waits on the OCR gazetteer)
+  js/search.js        place-name autocomplete over the map's gazetteer
+  review.html         place-name review tool (js/review.js, css/review.css)
   data/maps.json      registry of maps the site can show
+  data/gazetteers/    one place-name index per map
   fonts/charter/      Bitstream Charter webfonts
   vendor/             OpenSeadragon 5.0.1
   iiif/               generated tiles (not committed)
 tools/
   make_iiif_tiles.py  turn one image into static IIIF Image API 3.0 tiles
   build_tiles.py      run it for every map in maps.json
+  review_server.py    local server that lets the review tool save
+  ocr/run_ocr.py      read all text on a map (OnnxTR + RapidOCR)
+  ocr/build_gazetteer.py  group OCR words into labels for review
+ocr/<map-id>/
+  config.json         insets, margins etc. on that sheet
+  words.json          raw OCR output
 ```
 
 ### Run it locally
@@ -73,6 +81,74 @@ Add an entry to `site/data/maps.json`:
 under the title bar. `georeference` (control points linking sheet pixels to
 latitude and longitude) and `gazetteer` (the OCR place-name index) are
 placeholders for the coming features.
+
+## The place-name index
+
+Each map has its own gazetteer, `site/data/gazetteers/<map-id>.json`, named
+by the `gazetteer` field in `maps.json`; switching maps switches indexes.
+Every label printed on the sheet is an entry:
+
+```json
+{"id":"l00412","name":"Beth-shean","alt":["Beisan"],"kind":"place",
+ "box":[3412,4870,96,18],"status":"confirmed","reviewed":true,
+ "ocr":{"text":"Beth-shean","conf":0.98,"alt":"Bethshean"}}
+```
+
+`box` is the label's position in sheet pixels. `status` is `unreviewed`,
+`confirmed`, `rejected`, or `merged` (joined into another entry, `into`).
+Kinds include `place`, `ruin`, `wadi`, `mountain`, `height` (spot
+elevations, for the future elevation readout) and `graticule` (margin
+degree figures, for georeferencing). The public search shows confirmed and
+unreviewed places, not heights, margins or legends.
+
+### Building an index
+
+```sh
+pip install "onnxtr[cpu]" rapidocr-onnxruntime pillow
+python3 tools/ocr/run_ocr.py palestine-1901        # ~15 minutes on 4 cores
+python3 tools/ocr/build_gazetteer.py palestine-1901
+```
+
+### AI correction pass
+
+`tools/ocr/ai_correct.py` has Claude read every tile of the sheet at 2x,
+with the OCR boxes numbered, and fills in its transcription, fragment and
+alternate-name links, and labels the OCR missed. Entries stay unreviewed:
+the review tool shows the AI reading (with its confidence) next to the OCR
+readings. It needs `pip install anthropic` and an `ANTHROPIC_API_KEY`.
+
+```sh
+python3 tools/ocr/ai_correct.py preview palestine-1901  # see the images it sends (free)
+python3 tools/ocr/ai_correct.py trial   palestine-1901  # 3 tiles live; prints real cost estimate
+python3 tools/ocr/ai_correct.py submit  palestine-1901  # whole map, Batches API (half price)
+python3 tools/ocr/ai_correct.py collect palestine-1901  # when done: download and apply
+```
+
+Batch IDs and raw results are kept in `ocr/<map-id>/ai/` (commit them), so
+`apply` can be rerun and the pass never needs paying for twice.
+
+Rerunning `build_gazetteer.py` (say, after improving the grouping rules)
+keeps every entry already touched in review and only adds new OCR labels
+that don't overlap them.
+
+### Reviewing
+
+```sh
+python3 tools/review_server.py
+```
+
+Open <http://localhost:8000/review.html>. Each correction is saved straight
+to the gazetteer file; commit it to publish. Press **Keys** in the tool for
+the shortcuts. The tool also works on the published site
+(`/review.html`), where changes are kept in that browser and moved to the
+repository with **Export**.
+
+### When the restored master image replaces the scan
+
+Gazetteer boxes are in the pixel space of the image they were read from
+(`source` in the gazetteer). When a new image replaces it, the boxes will be
+carried across with the same alignment used to register the scans, so the
+review work is kept.
 
 ### Shareable views
 

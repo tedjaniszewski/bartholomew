@@ -202,6 +202,7 @@ button, input { font: inherit; color: inherit; }
 .search__results li { padding: 0.4rem 0.9rem; cursor: pointer; }
 .search__results li[aria-selected="true"], .search__results li:hover { background: var(--paper-deep); }
 .search__results .search__alt { color: var(--ink-soft); font-style: italic; font-size: 0.9rem; }
+.search__results .search__region { float: right; margin-left: 0.75rem; color: var(--ink-soft); font-size: 0.8rem; font-style: italic; }
 .search__results mark { background: none; color: var(--title-red); }
 .search__results .search__note { cursor: default; color: var(--ink-soft); font-style: italic; }
 .search__results .search__note:hover { background: none; }

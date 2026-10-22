@@ -36,6 +36,21 @@ from PIL import Image
 Image.MAX_IMAGE_PIXELS = None
 
 
+def load_image(path, trim=False):
+    """Open a source image as RGB, optionally cropping black padding.
+
+    The OCR tools load images through this too, so their pixel coordinates
+    match the tiles exactly.
+    """
+    image = Image.open(path).convert("RGB")
+    if trim:
+        bbox = image.convert("L").point(lambda v: 255 if v > 24 else 0).getbbox()
+        if bbox and bbox != (0, 0) + image.size:
+            print(f"Trimming padding: keeping {bbox}")
+            image = image.crop(bbox)
+    return image
+
+
 def scale_factors_for(width, height, tile):
     """Powers of two, down to the level where the whole image fits one tile."""
     factors = [1]
@@ -67,12 +82,7 @@ def main():
     out = args.output
 
     print(f"Reading {args.source} ...")
-    full = Image.open(args.source).convert("RGB")
-    if args.trim:
-        bbox = full.convert("L").point(lambda v: 255 if v > 24 else 0).getbbox()
-        if bbox and bbox != (0, 0) + full.size:
-            print(f"Trimming padding: keeping {bbox}")
-            full = full.crop(bbox)
+    full = load_image(args.source, args.trim)
     W, H = full.size
     factors = scale_factors_for(W, H, tile)
     print(f"Image {W} x {H}; scale factors {factors}")

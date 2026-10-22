@@ -53,7 +53,7 @@ export class MapViewer {
     });
 
     this.osd.addHandler("animation-finish", () => this.onViewChange?.(this.getView()));
-    this.osd.addHandler("zoom", () => this.onZoom?.(this.getView()));
+    this.osd.addHandler("animation", () => this.onZoom?.(this.getView()));
   }
 
   // Open a map from its IIIF info.json URL. Static (level 0) tiles cannot know
