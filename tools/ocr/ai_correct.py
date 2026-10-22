@@ -18,6 +18,18 @@ Commands (run from the repository root):
     python3 tools/ocr/ai_correct.py collect palestine-1901   # when finished: download and apply
     python3 tools/ocr/ai_correct.py apply   palestine-1901   # re-apply downloaded results
 
+Or, instead of the API, inside a Claude Code session (no API key needed):
+
+    python3 tools/ocr/ai_correct.py export  palestine-1901   # render every tile to ai/session/
+    python3 tools/ocr/ai_correct.py next    palestine-1901   # tiles still to read, with OCR hints
+    python3 tools/ocr/ai_correct.py record  palestine-1901 < readings.json
+    python3 tools/ocr/ai_correct.py apply   palestine-1901
+
+Claude reads each tile's image, writes its readings in the same JSON form
+the API returns ({"tile": id, "output": {"labels": [...], "missed": [...]}},
+one object or a list), and records them; the results file is shared with
+the batch path, so either can finish what the other started.
+
 Requires: pip install anthropic pillow, and an API key in ANTHROPIC_API_KEY.
 """
 
@@ -154,6 +166,8 @@ def paths(map_id):
     return {
         "dir": base,
         "batches": base / "batches.json",
+        "tiles": base / "tiles.json",
+        "session": base / "session",
         "results": base / "results.jsonl",
         "gazetteer": ROOT / "site" / "data" / "gazetteers" / f"{map_id}.json",
     }
@@ -311,8 +325,10 @@ def apply_results(map_id):
     p = paths(map_id)
     gazetteer = json.loads(p["gazetteer"].read_text())
     by_id = {e["id"]: e for e in gazetteer["entries"]}
-    batches = json.loads(p["batches"].read_text()) if p["batches"].exists() else {"tiles": {}}
-    tiles = batches["tiles"]
+    tiles = {}
+    for source in (p["batches"], p["tiles"]):
+        if source.exists():
+            tiles.update(json.loads(source.read_text())["tiles"])
     if not p["results"].exists():
         sys.exit("No results downloaded yet. Run 'collect' first.")
 
@@ -561,16 +577,117 @@ def cmd_apply(args):
     apply_results(args.map_id)
 
 
+# ---------------------------------------------------------------------------
+# In-session pass: Claude Code reads the tiles instead of the API
+# ---------------------------------------------------------------------------
+
+def cmd_export(args):
+    p = paths(args.map_id)
+    image, gazetteer = load_map(args.map_id)
+    by_id = {e["id"]: e for e in gazetteer["entries"]}
+    tiles = make_tiles(gazetteer, *image.size)
+    for tile in tiles:
+        tile["readings"] = [
+            " / ".join(dict.fromkeys(filter(None, [(by_id[i].get("ocr") or {}).get("text"),
+                                                   (by_id[i].get("ocr") or {}).get("alt")]))) or "(none)"
+            for i in tile["entries"]
+        ]
+    p["session"].mkdir(parents=True, exist_ok=True)
+    for n, tile in enumerate(tiles, 1):
+        clean, marked = render(image, tile, by_id)
+        (p["session"] / f"{tile['id']}.jpg").write_bytes(marked)
+        (p["session"] / f"{tile['id']}-clean.jpg").write_bytes(clean)
+        print(f"Rendered {n}/{len(tiles)}", end="\r", flush=True)
+    p["tiles"].write_text(json.dumps({"tiles": {t["id"]: t for t in tiles}}, ensure_ascii=False, indent=1))
+    print(f"\nWrote {len(tiles)} tiles to {p['session']} and {p['tiles']}")
+
+
+def done_tiles(p):
+    if not p["results"].exists():
+        return set()
+    return {json.loads(line)["tile"] for line in p["results"].read_text().splitlines() if line.strip()}
+
+
+def cmd_next(args):
+    p = paths(args.map_id)
+    tiles = json.loads(p["tiles"].read_text())["tiles"]
+    done = done_tiles(p)
+    left = [t for t in tiles.values() if t["id"] not in done]
+    print(f"{len(done)} of {len(tiles)} tiles done, {len(left)} left.")
+    for tile in left[: args.count]:
+        print(f"\n{tile['id']}  image: {p['session'] / (tile['id'] + '.jpg')}")
+        for n, reading in enumerate(tile["readings"], 1):
+            print(f"  {n}. {reading}")
+
+
+def validate(tile, output):
+    """Check readings against SCHEMA's rules, as structured output would."""
+    problems = []
+    count = len(tile["entries"])
+    seen = set()
+    for item in output.get("labels", []):
+        missing = {"n", "action", "text", "target", "kind", "confidence", "note"} - set(item)
+        if missing:
+            problems.append(f"label {item.get('n')}: missing {sorted(missing)}")
+            continue
+        if not 1 <= item["n"] <= count:
+            problems.append(f"label {item['n']}: no such box (1-{count})")
+        seen.add(item["n"])
+        if item["action"] not in ("label", "part_of", "alternate_of", "not_text"):
+            problems.append(f"label {item['n']}: bad action {item['action']!r}")
+        if item["kind"] not in KINDS:
+            problems.append(f"label {item['n']}: bad kind {item['kind']!r}")
+        if item["confidence"] not in ("high", "medium", "low"):
+            problems.append(f"label {item['n']}: bad confidence {item['confidence']!r}")
+        linked = item["action"] in ("part_of", "alternate_of")
+        if linked != (item["target"] is not None) or (linked and not 1 <= item["target"] <= count):
+            problems.append(f"label {item['n']}: bad target {item['target']!r} for {item['action']}")
+    absent = set(range(1, count + 1)) - seen
+    if absent:
+        problems.append(f"no entry for boxes {sorted(absent)}")
+    for m in output.get("missed", []):
+        if m.get("kind") not in KINDS or len(m.get("box", [])) != 4 or not m.get("text"):
+            problems.append(f"missed label {m!r} is malformed")
+    return problems
+
+
+def cmd_record(args):
+    p = paths(args.map_id)
+    tiles = json.loads(p["tiles"].read_text())["tiles"]
+    data = json.load(sys.stdin)
+    records = data if isinstance(data, list) else [data]
+    done = done_tiles(p)
+    ok = []
+    for record in records:
+        tile = tiles.get(record.get("tile"))
+        if not tile:
+            sys.exit(f"Unknown tile {record.get('tile')!r}; nothing recorded.")
+        problems = validate(tile, record["output"])
+        if problems:
+            sys.exit(f"{tile['id']}: " + "; ".join(problems) + ". Nothing recorded.")
+        if tile["id"] in done:
+            print(f"{tile['id']} was already recorded; skipping.")
+            continue
+        ok.append({"tile": tile["id"], "output": record["output"], "by": "claude-code-session"})
+    with open(p["results"], "a") as f:
+        for record in ok:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    print(f"Recorded {len(ok)} tile(s); {len(done) + len(ok)} of {len(tiles)} done.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="AI correction pass over a map's OCR gazetteer.")
     sub = parser.add_subparsers(dest="command", required=True)
     for name, fn in [("preview", cmd_preview), ("trial", cmd_trial), ("submit", cmd_submit),
-                     ("collect", cmd_collect), ("apply", cmd_apply)]:
+                     ("collect", cmd_collect), ("apply", cmd_apply),
+                     ("export", cmd_export), ("next", cmd_next), ("record", cmd_record)]:
         p = sub.add_parser(name)
         p.add_argument("map_id")
         p.set_defaults(fn=fn)
         if name in ("preview", "trial"):
             p.add_argument("--tiles", type=int, default=3)
+        if name == "next":
+            p.add_argument("--count", type=int, default=4)
         if name == "submit":
             p.add_argument("--limit", type=int, help="only the first N tiles")
             p.add_argument("--force", action="store_true")
