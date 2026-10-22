@@ -1,14 +1,21 @@
 // Place-name search with autocomplete.
 //
-// Each map may name a gazetteer: a JSON list of the labels printed on it,
+// Each map may name a gazetteer (site/data/gazetteers/<map-id>.json): the
+// labels printed on it, read by OCR and corrected in the review tool,
 //
-//   [{ "name": "Beth-shean", "alt": ["Scythopolis", "Beisan"],
-//      "box": [x, y, width, height] }, ...]
+//   { "regions": { "jerusalem": "Jerusalem inset", ... },
+//     "entries": [{ "name": "Beth-shean", "alt": ["Beisan"], "kind": "place",
+//                   "box": [x, y, width, height], "status": "confirmed" }, ...] }
 //
-// where "box" is the label's position in image pixels. Until the OCR index
-// exists the search box explains that, rather than failing silently.
+// where "box" is the label's position in image pixels. Switching maps
+// switches gazetteers.
 
 const MAX_RESULTS = 12;
+
+// Labels that are not places to search for: spot heights, the degree
+// figures in the margin, the title, legends and the glossary of terms.
+const UNSEARCHABLE_KINDS = new Set(["height", "graticule", "title", "legend", "glossary"]);
+const SEARCHABLE_STATUS = new Set(["confirmed", "unreviewed"]);
 
 // Fold case, accents, and the punctuation that varies between transliterations
 // ("Beth-she'an", "Beth Shean", "Bethshean"), so they all match one another.
@@ -67,7 +74,9 @@ export function searchEntries(entries, query) {
     }
     if (best !== null) hits.push({ entry, matched, score: best });
   }
-  hits.sort((a, b) => a.score - b.score || a.entry.name.localeCompare(b.entry.name));
+  const unconfirmed = (hit) => (hit.entry.status === "confirmed" ? 0 : 1);
+  hits.sort((a, b) =>
+    a.score - b.score || unconfirmed(a) - unconfirmed(b) || a.entry.name.localeCompare(b.entry.name));
   return hits.slice(0, MAX_RESULTS);
 }
 
@@ -106,7 +115,11 @@ export class PlaceSearch {
     try {
       const response = await fetch(url);
       if (!response.ok) throw new Error(response.statusText);
-      this.entries = await response.json();
+      const doc = await response.json();
+      const regions = doc.regions || {};
+      this.entries = doc.entries
+        .filter((e) => e.name && SEARCHABLE_STATUS.has(e.status) && !UNSEARCHABLE_KINDS.has(e.kind))
+        .map((e) => ({ ...e, regionLabel: regions[e.region] }));
       this.status = "ready";
     } catch {
       this.status = "error";
@@ -150,6 +163,12 @@ export class PlaceSearch {
         alt.className = "search__alt";
         alt.textContent = ` (${matched})`;
         li.append(alt);
+      }
+      if (entry.regionLabel) {
+        const region = document.createElement("span");
+        region.className = "search__region";
+        region.textContent = entry.regionLabel;
+        li.append(region);
       }
       this.list.append(li);
     });

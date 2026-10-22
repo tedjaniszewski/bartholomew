@@ -17,7 +17,7 @@
         "url": "https://www.geographicus.com/P/AntiqueMap/topophysicalpalestine-bartholomew-1901"
       },
       "georeference": null,
-      "gazetteer": null
+      "gazetteer": "data/gazetteers/palestine-1901.json"
     }
   ]
 }

@@ -1,0 +1,125 @@
+/* Place-name review tool. Builds on bartholomew.css. */
+
+.review .masthead {
+  grid-template-columns: auto auto 1fr auto;
+  grid-template-areas: "brand map progress nav";
+}
+.review-map { grid-area: map; }
+.review-map select, .panel select, .panel input {
+  padding: 0.25rem 0.45rem;
+  background: #fbf6ea;
+  border: 1px solid var(--paper-edge);
+  border-radius: var(--radius);
+  font: inherit;
+  color: var(--ink);
+}
+.review-progress { grid-area: progress; margin: 0; color: var(--ink-soft); font-style: italic; font-variant-numeric: tabular-nums; }
+.review-save { align-items: center; }
+.save-status { font-size: 0.9rem; color: var(--ink-soft); font-style: italic; }
+.save-status.is-error { color: var(--title-red); font-style: normal; }
+
+.text-button {
+  padding: 0; background: none; border: 0;
+  font-variant: small-caps; letter-spacing: 0.06em; font-size: 1.05rem;
+  color: var(--ink-soft); cursor: pointer;
+}
+.text-button:hover { color: var(--title-red); }
+
+body.review { grid-template-rows: auto 1fr; }
+
+.review-body {
+  display: grid;
+  grid-template-columns: 1fr 23rem;
+  min-height: 0;
+}
+
+/* Boxes drawn over the map */
+.boxes { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; overflow: hidden; }
+.boxes rect { fill: none; stroke-width: 1.5; vector-effect: non-scaling-stroke; }
+.boxes .s-unreviewed { stroke: #e0a020; }
+.boxes .s-confirmed { stroke: #3f8a3a; }
+.boxes .s-rejected { stroke: #8a7f74; stroke-dasharray: 3 3; }
+.boxes .s-merged { stroke: #8a7f74; stroke-width: 1; stroke-dasharray: 1 3; }
+.boxes .is-current { stroke: var(--title-red); stroke-width: 3; fill: rgb(178 58 46 / 0.08); }
+.boxes .is-picked { stroke: var(--sea); stroke-width: 3; }
+.boxes .rubber { stroke: var(--sea); stroke-width: 2; stroke-dasharray: 5 3; fill: rgb(79 150 146 / 0.12); }
+
+.mode-banner {
+  position: absolute; top: 12px; left: 50%; transform: translateX(-50%); z-index: 5;
+  padding: 0.35rem 0.9rem;
+  background: var(--sea); color: white;
+  border-radius: 999px; box-shadow: var(--shadow);
+  font-size: 0.95rem;
+}
+
+/* Side panel */
+.panel {
+  display: flex; flex-direction: column;
+  min-height: 0;
+  background: var(--paper);
+  border-left: var(--rule);
+}
+.filters { display: flex; gap: 0.4rem; padding: 0.6rem 0.8rem; border-bottom: 1px solid var(--paper-edge); }
+.filters select, .filters input { min-width: 0; flex: 1; font-size: 0.9rem; }
+
+.editor { padding: 0.7rem 0.8rem 0.9rem; border-bottom: 1px solid var(--paper-edge); }
+.editor__position { margin: 0 0 0.4rem; font-size: 0.9rem; color: var(--ink-soft); font-variant-numeric: tabular-nums; }
+.editor__status { font-style: italic; }
+
+.readings { margin-bottom: 0.5rem; font-size: 0.9rem; color: var(--ink-soft); }
+.readings p { margin: 0 0 0.2rem; }
+.reading {
+  padding: 0 0.3rem; background: var(--paper-deep); border: 1px solid var(--paper-edge); border-radius: var(--radius);
+  font-size: 0.95rem; color: var(--ink); cursor: pointer;
+}
+.reading:hover { border-color: var(--sea); }
+
+.field { display: flex; flex-direction: column; gap: 0.15rem; margin-bottom: 0.5rem; font-size: 0.85rem; color: var(--ink-soft); }
+.field input, .field select { font-size: 1rem; width: 100%; }
+#name { font-size: 1.2rem; }
+.field .hint { font-style: italic; }
+.field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; }
+
+.actions { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.45rem; }
+.action {
+  flex: 1 1 auto;
+  padding: 0.35rem 0.6rem;
+  background: var(--paper-deep);
+  border: 1px solid var(--paper-edge);
+  border-radius: var(--radius);
+  font-size: 0.9rem;
+  cursor: pointer;
+}
+.action:hover { border-color: var(--ink-soft); }
+.action--confirm { background: #3f8a3a; border-color: #346f30; color: white; font-size: 1rem; }
+.action--confirm:hover { background: #346f30; }
+.action--reject { background: #efe0d8; color: var(--title-red); font-size: 1rem; }
+.actions--secondary .action { flex: 1 1 30%; font-size: 0.85rem; }
+.action[aria-pressed="true"] { background: var(--sea); border-color: var(--sea); color: white; }
+
+.queue { flex: 1; min-height: 0; overflow-y: auto; margin: 0; padding: 0.3rem 0; list-style: none; font-size: 0.95rem; }
+.queue li { display: flex; gap: 0.5rem; align-items: baseline; padding: 0.2rem 0.8rem; cursor: pointer; }
+.queue li:hover { background: var(--paper-deep); }
+.queue li.is-current { background: var(--paper-deep); box-shadow: inset 3px 0 0 var(--title-red); }
+.queue .q-name { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.queue .q-kind { font-size: 0.8rem; font-style: italic; color: var(--ink-soft); }
+.queue .q-dot { width: 0.55rem; height: 0.55rem; border-radius: 50%; flex: none; align-self: center; }
+.queue .s-unreviewed .q-dot { background: #e0a020; }
+.queue .s-confirmed .q-dot { background: #3f8a3a; }
+.queue .s-rejected .q-dot, .queue .s-merged .q-dot { background: #b5aa9c; }
+.queue .s-rejected .q-name, .queue .s-merged .q-name { text-decoration: line-through; color: var(--ink-soft); }
+
+.help { max-width: 34rem; border: 1px solid var(--paper-edge); border-radius: var(--radius); background: var(--paper); color: var(--ink); box-shadow: var(--shadow); }
+.help::backdrop { background: rgb(34 28 22 / 0.4); }
+.help h2 { margin-top: 0; font-size: 1.2rem; }
+.help dl { display: grid; grid-template-columns: auto 1fr; gap: 0.3rem 1rem; }
+.help dt { font-variant-numeric: tabular-nums; font-weight: 700; white-space: nowrap; }
+.help dd { margin: 0; }
+
+/* Tablets and phones: map on top, panel below */
+@media (max-width: 900px) {
+  .review .masthead { grid-template-columns: auto 1fr auto; grid-template-areas: "brand map nav" "progress progress progress"; }
+  .review-body { grid-template-columns: 1fr; grid-template-rows: 55% 45%; }
+  .panel { border-left: 0; border-top: var(--rule); overflow-y: auto; }
+  .queue { flex: none; max-height: 14rem; }
+}

@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Review place names · Bartholomew</title>
+  <meta name="robots" content="noindex">
+  <meta name="theme-color" content="#f3ead6">
+  <link rel="stylesheet" href="css/bartholomew.css">
+  <link rel="stylesheet" href="css/review.css">
+  <script src="vendor/openseadragon/openseadragon.min.js" defer></script>
+  <script src="js/review.js" type="module"></script>
+</head>
+<body class="app review">
+  <header class="masthead">
+    <a class="brand" href="./">Bartholomew</a>
+    <label class="review-map">
+      <span class="visually-hidden">Map</span>
+      <select id="map-select"></select>
+    </label>
+    <p class="review-progress" id="progress">Loading&hellip;</p>
+    <nav class="masthead__nav review-save">
+      <span id="save-status" class="save-status"></span>
+      <button type="button" class="text-button" id="export">Export</button>
+      <label class="text-button">Import<input type="file" id="import" accept="application/json" hidden></label>
+      <button type="button" class="text-button" id="help-button" aria-expanded="false" aria-controls="help">Keys</button>
+    </nav>
+  </header>
+
+  <div class="review-body">
+    <main class="stage">
+      <div class="viewer" id="viewer"></div>
+      <svg class="boxes" id="boxes" aria-hidden="true"></svg>
+      <div class="mode-banner" id="mode-banner" hidden></div>
+    </main>
+
+    <aside class="panel">
+      <div class="filters">
+        <select id="filter-status" aria-label="Show entries with status">
+          <option value="unreviewed">Unreviewed</option>
+          <option value="all">All</option>
+          <option value="confirmed">Confirmed</option>
+          <option value="rejected">Rejected</option>
+          <option value="merged">Merged</option>
+        </select>
+        <select id="filter-kind" aria-label="Show entries of kind">
+          <option value="">All kinds</option>
+        </select>
+        <input id="filter-text" type="search" placeholder="Filter text" aria-label="Filter by text">
+      </div>
+
+      <form class="editor" id="editor" autocomplete="off">
+        <p class="editor__position"><span id="position"></span> <span class="editor__status" id="status"></span></p>
+
+        <div class="readings">
+          <p>OCR read <button type="button" class="reading" id="reading-1"></button></p>
+          <p id="reading-2-row">Second reading <button type="button" class="reading" id="reading-2"></button></p>
+        </div>
+
+        <label class="field">Name
+          <input id="name" spellcheck="false">
+        </label>
+        <label class="field">Alternate names <span class="hint">separate with ;</span>
+          <input id="alt" spellcheck="false">
+        </label>
+        <div class="field-row">
+          <label class="field">Kind <select id="kind"></select></label>
+          <label class="field">Region <select id="region"></select></label>
+        </div>
+        <label class="field">Note
+          <input id="note">
+        </label>
+
+        <div class="actions">
+          <button type="submit" class="action action--confirm" title="Enter">Confirm</button>
+          <button type="button" class="action action--reject" id="reject" title="Alt+X">Reject</button>
+        </div>
+        <div class="actions actions--secondary">
+          <button type="button" class="action" id="prev" title="Alt+←">&larr; Previous</button>
+          <button type="button" class="action" id="next" title="Alt+→">Skip &rarr;</button>
+        </div>
+        <div class="actions actions--secondary">
+          <button type="button" class="action" id="merge" title="Alt+M">Join with&hellip;</button>
+          <button type="button" class="action" id="make-alt" title="Alt+A">Alternate of&hellip;</button>
+          <button type="button" class="action" id="redraw" title="Alt+B">Redraw box</button>
+          <button type="button" class="action" id="new" title="Alt+N">New label</button>
+          <button type="button" class="action" id="undo" title="Ctrl+Z">Undo</button>
+        </div>
+      </form>
+
+      <ol class="queue" id="queue"></ol>
+    </aside>
+  </div>
+
+  <dialog class="help" id="help">
+    <h2>Reviewing place names</h2>
+    <p>Each box on the map is a label found by OCR. Correct the name as printed on the map, keeping its spelling, hyphens and question marks, then confirm. Work through the queue on the right; click any box to jump to it.</p>
+    <dl>
+      <dt>Enter</dt><dd>Confirm and go to the next label</dd>
+      <dt>Alt+X</dt><dd>Reject (not a place name, or misread noise)</dd>
+      <dt>Alt+&rarr; / Alt+&larr;</dt><dd>Skip ahead / go back</dd>
+      <dt>Alt+M</dt><dd>Join with another box: click a box whose words belong to this label (e.g. a name split in two)</dd>
+      <dt>Alt+A</dt><dd>Make this an alternate name of another label: click the main name (e.g. &ldquo;(Beisan)&rdquo; under &ldquo;Beth-shean&rdquo;)</dd>
+      <dt>Alt+B</dt><dd>Redraw this label&rsquo;s box: drag on the map</dd>
+      <dt>Alt+N</dt><dd>Add a label OCR missed: drag a box round it</dd>
+      <dt>Ctrl+Z</dt><dd>Undo (when not typing in a field)</dd>
+      <dt>Esc</dt><dd>Cancel joining or drawing</dd>
+    </dl>
+    <p>Kinds: <em>height</em> is a spot elevation (these will feed the elevation readout), <em>graticule</em> the degree figures in the margin (these will help georeference the map).</p>
+    <form method="dialog"><button class="action">Close</button></form>
+  </dialog>
+</body>
+</html>

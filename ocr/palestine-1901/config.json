@@ -1,0 +1,17 @@
+{
+  "map": "palestine-1901",
+  "about": "Areas of the sheet that are not the main map. Rectangles are [x0, y0, x1, y1] in sheet pixels. Labels found inside a region are tagged with it; 'kind' and 'status' set their defaults for review.",
+  "neatline": [222, 200, 6470, 9880],
+  "outsideNeatline": { "id": "margin", "label": "Margin", "kind": "graticule", "status": "rejected" },
+  "regions": [
+    { "id": "section-north", "label": "Section across the north", "rect": [222, 200, 2690, 665], "status": "rejected" },
+    { "id": "title", "label": "Title", "rect": [940, 1160, 2010, 2090], "kind": "title", "status": "rejected" },
+    { "id": "tints-north", "label": "Scale of heights", "rect": [1070, 2270, 1730, 2790], "kind": "legend", "status": "rejected" },
+    { "id": "london", "label": "London inset", "rect": [5600, 5580, 6470, 6170] },
+    { "id": "modern-palestine", "label": "Modern Palestine inset", "rect": [5200, 6170, 6470, 8000] },
+    { "id": "glossary", "label": "Arabic geographical terms", "rect": [4710, 6600, 5200, 9300], "kind": "glossary", "status": "rejected" },
+    { "id": "jerusalem", "label": "Jerusalem inset", "rect": [5200, 8000, 6470, 9880] },
+    { "id": "section-south", "label": "Section across the south", "rect": [222, 9320, 4520, 9880], "status": "rejected" },
+    { "id": "tints-south", "label": "Scale of heights", "rect": [4520, 9270, 5200, 9880], "kind": "legend", "status": "rejected" }
+  ]
+}
