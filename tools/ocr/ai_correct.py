@@ -49,7 +49,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "ocr"))
 from make_iiif_tiles import load_image  # noqa: E402
-from build_gazetteer import KIND_PREFIXES, overlap, write_gazetteer  # noqa: E402,F401
+from build_gazetteer import (  # noqa: E402,F401
+    KIND_PREFIXES, overlap, region_for, title_case, unsearchable_regions, write_gazetteer,
+)
 
 MODEL = "claude-opus-5-5"
 # Approximate prices per million tokens (Claude Opus 5.5); batches are half.
@@ -334,6 +336,9 @@ def covered(box, other):
 def apply_results(map_id):
     p = paths(map_id)
     gazetteer = json.loads(p["gazetteer"].read_text())
+    config_path = ROOT / "ocr" / map_id / "config.json"
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    gazetteer["unsearchableRegions"] = unsearchable_regions(config)
     by_id = {e["id"]: e for e in gazetteer["entries"]}
     tiles = {}
     for source in (p["batches"], p["tiles"]):
@@ -381,7 +386,7 @@ def apply_results(map_id):
 
             if action == "label":
                 # "Name | Alternate": a parenthesised name inside the same box.
-                name, *alts = [part.strip() for part in item["text"].split("|")]
+                name, *alts = [title_case(part.strip()) for part in item["text"].split("|")]
                 e["ai"]["text"] = name
                 e["name"] = name
                 e["alt"] = []
@@ -409,7 +414,7 @@ def apply_results(map_id):
             y1 = max(e["box"][1] + e["box"][3], target["box"][1] + target["box"][3])
             target["box"] = [x0, y0, x1 - x0, y1 - y0]
         else:
-            add_alt(target, item["text"])
+            add_alt(target, title_case(item["text"]))
 
     for tile, out in records:
         x0, y0 = tile["crop"][:2]
@@ -428,7 +433,7 @@ def apply_results(map_id):
                 for e in gazetteer["entries"]
             ):
                 continue
-            name, *alts = [part.strip() for part in m["text"].split("|")]
+            name, *alts = [title_case(part.strip()) for part in m["text"].split("|")]
             entry = {
                 "id": f"l{next_id:05d}", "name": name, "alt": [], "kind": m["kind"], "box": box,
                 "status": "unreviewed", "ocr": None,
@@ -437,10 +442,19 @@ def apply_results(map_id):
             }
             for alt in alts:
                 add_alt(entry, alt)
+            region = region_for(box, config)
+            if region:
+                entry["region"] = region["id"]
             next_id += 1
             gazetteer["entries"].append(entry)
             by_id[entry["id"]] = entry
             stats["missed"] += 1
+
+    # Names lettered in capitals on the map are stored in title case.
+    for e in gazetteer["entries"]:
+        if not e.get("reviewed"):
+            e["name"] = title_case(e["name"])
+            e["alt"] = [title_case(a) for a in e["alt"]]
 
     write_gazetteer(p["gazetteer"], gazetteer)
     print(f"Applied to {p['gazetteer']}: {stats}")
