@@ -6,3 +6,4 @@ __pycache__/
 
 # AI correction pass: preview images (regenerable)
 ocr/*/ai/preview/
+ocr/*/ai/session/

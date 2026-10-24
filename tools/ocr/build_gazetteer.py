@@ -149,6 +149,26 @@ def clean(text):
     return text
 
 
+# Small words kept lower case inside a name, as the map prints them:
+# Arabic articles and particles, and English connectives.
+LOWER_WORDS = PARTICLES | {"of", "or", "the", "and", "to", "from", "in", "at", "on", "as", "an", "a", "by", "de", "du", "la"}
+
+
+def title_case(text):
+    """Turn words lettered in capitals into title case ("SEA OF GALILEE" ->
+    "Sea of Galilee", "EL KUDS (JERUSALEM)" -> "El Kuds (Jerusalem)").
+    Words already in mixed or lower case are left exactly as printed."""
+    def fix(match):
+        word = match.group(0)
+        if len(re.sub(r"[\W\d_]", "", word)) < 2 or not word.isupper():
+            return word
+        lower = word.lower()
+        if match.start() > 0 and lower in LOWER_WORDS:
+            return lower
+        return "-".join(part[:1].upper() + part[1:] for part in lower.split("-"))
+    return re.sub(r"[^\W\d_][^\W\d_'’\-]*(?:['’\-][^\W\d_]+)*", fix, text)
+
+
 def kind_of(name):
     if HEIGHT.match(name.replace(",", "")):
         return "height"
@@ -254,6 +274,19 @@ def link_alternates(entries):
             child["into"] = best["id"]
 
 
+def unsearchable_regions(config):
+    """Regions whose labels stay in the gazetteer but not in the site's search
+    (set "searchable": false on the region in config.json)."""
+    return [r["id"] for r in config.get("regions", []) if r.get("searchable") is False]
+
+
+def region_for(box, config):
+    neat = config.get("neatline")
+    if neat and not inside(box, neat):
+        return config.get("outsideNeatline")
+    return next((r for r in config.get("regions", []) if inside(box, r["rect"])), None)
+
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("map_id")
@@ -282,7 +315,7 @@ def main():
             continue
         entry = {
             "id": f"l{next_id:05d}",
-            "name": name,
+            "name": title_case(name),
             "alt": [],
             "kind": kind_of(name),
             "box": label["box"],
@@ -321,6 +354,7 @@ def main():
         "image": ocr["image"],
         "source": ocr["source"],
         "regions": regions,
+        "unsearchableRegions": unsearchable_regions(config),
         "entries": entries,
     }
     write_gazetteer(out, document)

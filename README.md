@@ -99,7 +99,9 @@ Every label printed on the sheet is an entry:
 Kinds include `place`, `ruin`, `wadi`, `mountain`, `height` (spot
 elevations, for the future elevation readout) and `graticule` (margin
 degree figures, for georeferencing). The public search shows confirmed and
-unreviewed places, not heights, margins or legends.
+unreviewed places, not heights, margins or legends, and not regions marked
+`"searchable": false` in `ocr/<map-id>/config.json` (the London inset). Names
+lettered in capitals on the map are stored in title case.
 
 ### Building an index
 

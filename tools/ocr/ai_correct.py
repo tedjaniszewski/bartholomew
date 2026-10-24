@@ -18,6 +18,19 @@ Commands (run from the repository root):
     python3 tools/ocr/ai_correct.py collect palestine-1901   # when finished: download and apply
     python3 tools/ocr/ai_correct.py apply   palestine-1901   # re-apply downloaded results
 
+Or, instead of the API, inside a Claude Code session (no API key needed):
+
+    python3 tools/ocr/ai_correct.py export  palestine-1901   # render every tile to ai/session/
+    python3 tools/ocr/ai_correct.py next    palestine-1901   # tiles still to read, with OCR hints
+    python3 tools/ocr/ai_correct.py record  palestine-1901 < readings.json
+    python3 tools/ocr/ai_correct.py record  palestine-1901 --compact < readings.txt
+    python3 tools/ocr/ai_correct.py apply   palestine-1901
+
+Claude reads each tile's image, writes its readings in the same JSON form
+the API returns ({"tile": id, "output": {"labels": [...], "missed": [...]}},
+one object or a list), and records them; the results file is shared with
+the batch path, so either can finish what the other started.
+
 Requires: pip install anthropic pillow, and an API key in ANTHROPIC_API_KEY.
 """
 
@@ -36,7 +49,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "tools"))
 sys.path.insert(0, str(ROOT / "tools" / "ocr"))
 from make_iiif_tiles import load_image  # noqa: E402
-from build_gazetteer import KIND_PREFIXES, overlap, write_gazetteer  # noqa: E402,F401
+from build_gazetteer import (  # noqa: E402,F401
+    KIND_PREFIXES, overlap, region_for, title_case, unsearchable_regions, write_gazetteer,
+)
 
 MODEL = "claude-opus-5-5"
 # Approximate prices per million tokens (Claude Opus 5.5); batches are half.
@@ -91,7 +106,8 @@ OCR readings for the numbered boxes (OCR is often wrong; read the image):
 For every numbered box, return one entry in "labels":
 - action "label": the box holds a label (or most of one). "text" is the full \
 label exactly as printed. If the box clearly covers two separate labels, give \
-the main one and explain in "note".
+the main one and explain in "note". If it also holds a parenthesised \
+alternative name, write "Name | Alternative".
 - action "part_of": the box is only a piece of the label in box "target" \
 (e.g. "Kefr" and "Kenna" boxed separately). Give that full label's text in \
 the target's own entry; here "text" is just this piece.
@@ -154,6 +170,8 @@ def paths(map_id):
     return {
         "dir": base,
         "batches": base / "batches.json",
+        "tiles": base / "tiles.json",
+        "session": base / "session",
         "results": base / "results.jsonl",
         "gazetteer": ROOT / "site" / "data" / "gazetteers" / f"{map_id}.json",
     }
@@ -307,33 +325,58 @@ def request_params(image, tile, by_id):
 # Applying results
 # ---------------------------------------------------------------------------
 
+def covered(box, other):
+    """How much of `box` another box covers. A missed region name's large
+    box may contain small labels without duplicating them."""
+    iw = min(box[0] + box[2], other[0] + other[2]) - max(box[0], other[0])
+    ih = min(box[1] + box[3], other[1] + other[3]) - max(box[1], other[1])
+    return 0.0 if iw <= 0 or ih <= 0 else iw * ih / max(1, box[2] * box[3])
+
+
 def apply_results(map_id):
     p = paths(map_id)
     gazetteer = json.loads(p["gazetteer"].read_text())
+    config_path = ROOT / "ocr" / map_id / "config.json"
+    config = json.loads(config_path.read_text()) if config_path.exists() else {}
+    gazetteer["unsearchableRegions"] = unsearchable_regions(config)
     by_id = {e["id"]: e for e in gazetteer["entries"]}
-    batches = json.loads(p["batches"].read_text()) if p["batches"].exists() else {"tiles": {}}
-    tiles = batches["tiles"]
+    tiles = {}
+    for source in (p["batches"], p["tiles"]):
+        if source.exists():
+            tiles.update(json.loads(source.read_text())["tiles"])
     if not p["results"].exists():
         sys.exit("No results downloaded yet. Run 'collect' first.")
 
     next_id = 1 + max(int(e["id"][1:]) for e in gazetteer["entries"])
     stats = {"label": 0, "part_of": 0, "alternate_of": 0, "not_text": 0, "missed": 0, "skipped": 0}
 
+    records = []
     for line in p["results"].read_text().splitlines():
         record = json.loads(line)
         tile = tiles.get(record["tile"]) or record.get("tile_info")
-        if not tile or not record.get("output"):
-            continue
-        numbered = {n: by_id.get(i) for n, i in enumerate(tile["entries"], 1)}
-        out = record["output"]
+        if tile and record.get("output"):
+            records.append((tile, record["output"]))
 
+    def same(a, b):
+        return a.replace(" ", "").lower() == b.replace(" ", "").lower()
+
+    def add_alt(entry, alt):
+        alt = alt.strip("() ")
+        if alt and not same(alt, entry["name"]) and not any(same(alt, a) for a in entry["alt"]):
+            entry["alt"].append(alt)
+
+    # Two passes, because a link may point at a label in a tile read later:
+    # first every label is set from its own reading (the AI's alternates
+    # replace the OCR's guessed ones), then the links are applied on top.
+    links = []
+    for tile, out in records:
+        numbered = {n: by_id.get(i) for n, i in enumerate(tile["entries"], 1)}
         for item in out["labels"]:
             e = numbered.get(item["n"])
             if not e or e.get("reviewed"):
                 stats["skipped"] += 1
                 continue
             action = item["action"]
-            target = numbered.get(item["target"]) if item["target"] is not None else None
             e["ai"] = {k: v for k, v in {
                 "action": action, "text": item["text"], "confidence": item["confidence"], "note": item["note"],
             }.items() if v}
@@ -342,29 +385,38 @@ def apply_results(map_id):
             e.pop("into", None)
 
             if action == "label":
-                e["name"] = item["text"]
+                # "Name | Alternate": a parenthesised name inside the same box.
+                name, *alts = [title_case(part.strip()) for part in item["text"].split("|")]
+                e["ai"]["text"] = name
+                e["name"] = name
+                e["alt"] = []
+                for alt in alts:
+                    add_alt(e, alt)
                 e["kind"] = item["kind"]
                 e["status"] = "unreviewed"
             elif action == "not_text":
                 e["status"] = "rejected"
-            elif action in ("part_of", "alternate_of") and target and target is not e:
-                e["status"] = "merged"
-                e["into"] = target["id"]
-                if action == "part_of":
-                    x0 = min(e["box"][0], target["box"][0])
-                    y0 = min(e["box"][1], target["box"][1])
-                    x1 = max(e["box"][0] + e["box"][2], target["box"][0] + target["box"][2])
-                    y1 = max(e["box"][1] + e["box"][3], target["box"][1] + target["box"][3])
-                    target["box"] = [x0, y0, x1 - x0, y1 - y0]
-                else:
-                    alt = item["text"].strip("() ")
-                    if alt and alt not in target["alt"]:
-                        target["alt"].append(alt)
             else:
-                e["status"] = "unreviewed"
-                e["ai"]["note"] = (e["ai"].get("note", "") + " (unclear target)").strip()
+                links.append((e, item, numbered.get(item["target"]) if item["target"] is not None else None))
             stats[action] += 1
 
+    for e, item, target in links:
+        if not target or target is e:
+            e["status"] = "unreviewed"
+            e["ai"]["note"] = (e["ai"].get("note", "") + " (unclear target)").strip()
+            continue
+        e["status"] = "merged"
+        e["into"] = target["id"]
+        if item["action"] == "part_of":
+            x0 = min(e["box"][0], target["box"][0])
+            y0 = min(e["box"][1], target["box"][1])
+            x1 = max(e["box"][0] + e["box"][2], target["box"][0] + target["box"][2])
+            y1 = max(e["box"][1] + e["box"][3], target["box"][1] + target["box"][3])
+            target["box"] = [x0, y0, x1 - x0, y1 - y0]
+        else:
+            add_alt(target, title_case(item["text"]))
+
+    for tile, out in records:
         x0, y0 = tile["crop"][:2]
         s = tile["scale"]
         for m in out["missed"]:
@@ -373,18 +425,36 @@ def apply_results(map_id):
             bx0, by0, bx1, by1 = m["box"]
             box = [round(x0 + min(bx0, bx1) / s), round(y0 + min(by0, by1) / s),
                    round(abs(bx1 - bx0) / s), round(abs(by1 - by0) / s)]
-            if box[2] < 3 or box[3] < 3 or any(overlap(box, e["box"]) > 0.3 for e in gazetteer["entries"]):
+            # Skip it if an existing box of similar size already covers it; a
+            # much larger box spanning several labels doesn't count.
+            area = box[2] * box[3]
+            if box[2] < 3 or box[3] < 3 or any(
+                covered(box, e["box"]) > 0.3 and e["box"][2] * e["box"][3] < 2 * area
+                for e in gazetteer["entries"]
+            ):
                 continue
+            name, *alts = [title_case(part.strip()) for part in m["text"].split("|")]
             entry = {
-                "id": f"l{next_id:05d}", "name": m["text"], "alt": [], "kind": m["kind"], "box": box,
+                "id": f"l{next_id:05d}", "name": name, "alt": [], "kind": m["kind"], "box": box,
                 "status": "unreviewed", "ocr": None,
-                "ai": {"action": "missed", "text": m["text"], "confidence": "low",
+                "ai": {"action": "missed", "text": name, "confidence": "low",
                        "note": "Added by the AI pass; check the box covers the label"},
             }
+            for alt in alts:
+                add_alt(entry, alt)
+            region = region_for(box, config)
+            if region:
+                entry["region"] = region["id"]
             next_id += 1
             gazetteer["entries"].append(entry)
             by_id[entry["id"]] = entry
             stats["missed"] += 1
+
+    # Names lettered in capitals on the map are stored in title case.
+    for e in gazetteer["entries"]:
+        if not e.get("reviewed"):
+            e["name"] = title_case(e["name"])
+            e["alt"] = [title_case(a) for a in e["alt"]]
 
     write_gazetteer(p["gazetteer"], gazetteer)
     print(f"Applied to {p['gazetteer']}: {stats}")
@@ -561,16 +631,166 @@ def cmd_apply(args):
     apply_results(args.map_id)
 
 
+# ---------------------------------------------------------------------------
+# In-session pass: Claude Code reads the tiles instead of the API
+# ---------------------------------------------------------------------------
+
+def cmd_export(args):
+    p = paths(args.map_id)
+    image, gazetteer = load_map(args.map_id)
+    by_id = {e["id"]: e for e in gazetteer["entries"]}
+    tiles = make_tiles(gazetteer, *image.size)
+    for tile in tiles:
+        tile["readings"] = [
+            " / ".join(dict.fromkeys(filter(None, [(by_id[i].get("ocr") or {}).get("text"),
+                                                   (by_id[i].get("ocr") or {}).get("alt")]))) or "(none)"
+            for i in tile["entries"]
+        ]
+    p["session"].mkdir(parents=True, exist_ok=True)
+    for n, tile in enumerate(tiles, 1):
+        clean, marked = render(image, tile, by_id)
+        (p["session"] / f"{tile['id']}.jpg").write_bytes(marked)
+        (p["session"] / f"{tile['id']}-clean.jpg").write_bytes(clean)
+        print(f"Rendered {n}/{len(tiles)}", end="\r", flush=True)
+    p["tiles"].write_text(json.dumps({"tiles": {t["id"]: t for t in tiles}}, ensure_ascii=False, indent=1))
+    print(f"\nWrote {len(tiles)} tiles to {p['session']} and {p['tiles']}")
+
+
+def done_tiles(p):
+    if not p["results"].exists():
+        return set()
+    return {json.loads(line)["tile"] for line in p["results"].read_text().splitlines() if line.strip()}
+
+
+def cmd_next(args):
+    p = paths(args.map_id)
+    tiles = json.loads(p["tiles"].read_text())["tiles"]
+    done = done_tiles(p)
+    left = [t for t in tiles.values() if t["id"] not in done]
+    print(f"{len(done)} of {len(tiles)} tiles done, {len(left)} left.")
+    for tile in left[: args.count]:
+        print(f"\n{tile['id']}  image: {p['session'] / (tile['id'] + '.jpg')}")
+        for n, reading in enumerate(tile["readings"], 1):
+            print(f"  {n}. {reading}")
+
+
+def validate(tile, output):
+    """Check readings against SCHEMA's rules, as structured output would."""
+    problems = []
+    count = len(tile["entries"])
+    seen = set()
+    for item in output.get("labels", []):
+        missing = {"n", "action", "text", "target", "kind", "confidence", "note"} - set(item)
+        if missing:
+            problems.append(f"label {item.get('n')}: missing {sorted(missing)}")
+            continue
+        if not 1 <= item["n"] <= count:
+            problems.append(f"label {item['n']}: no such box (1-{count})")
+        seen.add(item["n"])
+        if item["action"] not in ("label", "part_of", "alternate_of", "not_text"):
+            problems.append(f"label {item['n']}: bad action {item['action']!r}")
+        if item["kind"] not in KINDS:
+            problems.append(f"label {item['n']}: bad kind {item['kind']!r}")
+        if item["confidence"] not in ("high", "medium", "low"):
+            problems.append(f"label {item['n']}: bad confidence {item['confidence']!r}")
+        linked = item["action"] in ("part_of", "alternate_of")
+        if linked != (item["target"] is not None) or (linked and not 1 <= item["target"] <= count):
+            problems.append(f"label {item['n']}: bad target {item['target']!r} for {item['action']}")
+    absent = set(range(1, count + 1)) - seen
+    if absent:
+        problems.append(f"no entry for boxes {sorted(absent)}")
+    for m in output.get("missed", []):
+        if m.get("kind") not in KINDS or len(m.get("box", [])) != 4 or not m.get("text"):
+            problems.append(f"missed label {m!r} is malformed")
+    return problems
+
+
+CONFIDENCE = {"h": "high", "m": "medium", "l": "low"}
+
+
+def parse_compact(text):
+    """Shorthand for readings, one line per box:
+
+        @x03072-y00000-s512
+        1 L headland h Ras Beirut
+        5 P4 water h Bay              (part of box 4)
+        14 A12 place h Tell Damieh    (alternate name of box 12)
+        5 L place m ? Mearah | Mogheiriyeh   (alternate name inside the same box)
+        8 N m # coastline squiggle    (not text)
+        M region 330,560,560,1040 LEBANON   (missed: box in image pixels)
+
+    Text after " # " is a note."""
+    records, current = [], None
+    for raw in text.splitlines():
+        line, _, note = raw.partition(" # ")
+        line, note = line.strip(), note.strip()
+        if not line:
+            continue
+        if line.startswith("@"):
+            current = {"tile": line[1:].strip(), "output": {"labels": [], "missed": []}}
+            records.append(current)
+            continue
+        parts = line.split()
+        if parts[0] == "M":
+            box = [float(v) for v in parts[2].split(",")]
+            current["output"]["missed"].append({"kind": parts[1], "box": box, "text": " ".join(parts[3:])})
+            continue
+        n, code = int(parts[0]), parts[1]
+        if code == "N":
+            conf = CONFIDENCE.get(parts[2], "medium") if len(parts) > 2 else "medium"
+            item = {"n": n, "action": "not_text", "text": "", "target": None, "kind": "other",
+                    "confidence": conf, "note": note}
+        else:
+            action = {"L": "label", "P": "part_of", "A": "alternate_of"}[code[0]]
+            item = {"n": n, "action": action, "text": " ".join(parts[4:]),
+                    "target": int(code[1:]) if code[1:] else None, "kind": parts[2],
+                    "confidence": CONFIDENCE[parts[3]], "note": note}
+        current["output"]["labels"].append(item)
+    return records
+
+
+def cmd_record(args):
+    p = paths(args.map_id)
+    tiles = json.loads(p["tiles"].read_text())["tiles"]
+    if args.compact:
+        records = parse_compact(sys.stdin.read())
+    else:
+        data = json.load(sys.stdin)
+        records = data if isinstance(data, list) else [data]
+    done = done_tiles(p)
+    ok = []
+    for record in records:
+        tile = tiles.get(record.get("tile"))
+        if not tile:
+            sys.exit(f"Unknown tile {record.get('tile')!r}; nothing recorded.")
+        problems = validate(tile, record["output"])
+        if problems:
+            sys.exit(f"{tile['id']}: " + "; ".join(problems) + ". Nothing recorded.")
+        if tile["id"] in done:
+            print(f"{tile['id']} was already recorded; skipping.")
+            continue
+        ok.append({"tile": tile["id"], "output": record["output"], "by": "claude-code-session"})
+    with open(p["results"], "a") as f:
+        for record in ok:
+            f.write(json.dumps(record, ensure_ascii=False) + "\n")
+    print(f"Recorded {len(ok)} tile(s); {len(done) + len(ok)} of {len(tiles)} done.")
+
+
 def main():
     parser = argparse.ArgumentParser(description="AI correction pass over a map's OCR gazetteer.")
     sub = parser.add_subparsers(dest="command", required=True)
     for name, fn in [("preview", cmd_preview), ("trial", cmd_trial), ("submit", cmd_submit),
-                     ("collect", cmd_collect), ("apply", cmd_apply)]:
+                     ("collect", cmd_collect), ("apply", cmd_apply),
+                     ("export", cmd_export), ("next", cmd_next), ("record", cmd_record)]:
         p = sub.add_parser(name)
         p.add_argument("map_id")
         p.set_defaults(fn=fn)
         if name in ("preview", "trial"):
             p.add_argument("--tiles", type=int, default=3)
+        if name == "next":
+            p.add_argument("--count", type=int, default=4)
+        if name == "record":
+            p.add_argument("--compact", action="store_true", help="read the one-line-per-box shorthand")
         if name == "submit":
             p.add_argument("--limit", type=int, help="only the first N tiles")
             p.add_argument("--force", action="store_true")

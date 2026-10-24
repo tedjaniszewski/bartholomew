@@ -24,6 +24,8 @@ export function normalize(text) {
     .normalize("NFD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
+    .replace(/æ/g, "ae")
+    .replace(/œ/g, "oe")
     .replace(/[''`ʻʼ‘’.\-]/g, "")
     .replace(/\s+/g, " ")
     .trim();
@@ -117,8 +119,11 @@ export class PlaceSearch {
       if (!response.ok) throw new Error(response.statusText);
       const doc = await response.json();
       const regions = doc.regions || {};
+      // Insets that aren't part of the map's subject (e.g. the London inset).
+      const hiddenRegions = new Set(doc.unsearchableRegions || []);
       this.entries = doc.entries
         .filter((e) => e.name && SEARCHABLE_STATUS.has(e.status) && !UNSEARCHABLE_KINDS.has(e.kind))
+        .filter((e) => !hiddenRegions.has(e.region))
         .map((e) => ({ ...e, regionLabel: regions[e.region] }));
       this.status = "ready";
     } catch {
