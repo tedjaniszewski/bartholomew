@@ -384,6 +384,11 @@ body.app {
   border: 1px solid var(--paper-edge);
   box-shadow: var(--shadow);
 }
+.prose figure.portrait { float: right; width: 9.5rem; margin: 0.3rem 0 1rem 1.5rem; }
+.prose figure.portrait img { box-shadow: none; }
+.prose figure.portrait figcaption { font-size: 0.8rem; line-height: 1.35; }
+.prose h2 { clear: both; }
+@media (max-width: 480px) { .prose figure.portrait { width: 7rem; margin-left: 1rem; } }
 .prose figcaption { margin-top: 0.6rem; font-size: 0.9rem; font-style: italic; color: var(--ink-soft); }
 .prose ul { padding-left: 1.2rem; }
 .prose li { margin-bottom: 0.5rem; }
